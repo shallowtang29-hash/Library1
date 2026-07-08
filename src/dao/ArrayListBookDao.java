@@ -1,4 +1,3 @@
-// 文件路径: src/dao/ArrayListBookDao.java
 package dao;
 
 import model.Book;

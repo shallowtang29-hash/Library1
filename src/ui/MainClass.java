@@ -5,26 +5,102 @@ import java.util.List;
 import java.util.Scanner;
 import dao.BookDao;
 import dao.ArrayListBookDao;
+import dao.UserDao;
+import dao.ArrayListUserDao;
 import model.Book;
+import model.User;
 import service.BookService;
+import service.UserService;
 import exception.BookException;
+import exception.UserException;
 
 public class MainClass {
     private final BookService bookService;
+    private final UserService userService;
     private final Scanner scanner = new Scanner(System.in);
+    private User currentUser;
 
     public MainClass() {
         BookDao bookDao = new ArrayListBookDao();
+        UserDao userDao = new ArrayListUserDao();
         this.bookService = new BookService(bookDao);
+        this.userService = new UserService(userDao);
 
+        showLoginMenu();
+    }
+
+    public static void main(String[] args) {
+        new MainClass();
+    }
+
+    private void showLoginMenu() {
+        while (true) {
+            System.out.println("\n========== 欢迎使用图书管理系统 ==========");
+            System.out.println("登录请选-----------------1");
+            System.out.println("注册请选-----------------2");
+            System.out.println("退出系统请选-------------0");
+            System.out.println("请选择：");
+
+            int choice = scanner.nextInt();
+            scanner.nextLine();
+
+            try {
+                switch (choice) {
+                    case 1:
+                        login();
+                        break;
+                    case 2:
+                        register();
+                        break;
+                    case 0:
+                        System.out.println("感谢使用，再见！");
+                        System.exit(0);
+                        break;
+                    default:
+                        System.out.println("输入无效，请重新选择！");
+                        break;
+                }
+            } catch (UserException | InputMismatchException e) {
+                System.out.println("操作失败：" + e.getMessage());
+            }
+        }
+    }
+
+    private void login() {
+        System.out.println("========== 用户登录 ==========");
+        System.out.println("请输入用户名：");
+        String username = scanner.nextLine();
+        System.out.println("请输入密码：");
+        String password = scanner.nextLine();
+
+        currentUser = userService.login(username, password);
+        System.out.println("登录成功！欢迎，" + currentUser.getRole() + "：" + currentUser.getUsername());
+        showMainMenu();
+    }
+
+    private void register() {
+        System.out.println("========== 用户注册 ==========");
+        System.out.println("请输入用户名：");
+        String username = scanner.nextLine();
+        System.out.println("请输入密码（至少6位）：");
+        String password = scanner.nextLine();
+        System.out.println("请选择角色（管理员输入admin，普通用户输入user）：");
+        String role = scanner.nextLine();
+
+        userService.register(username, password, role);
+        System.out.println("注册成功！请登录：");
+    }
+
+    private void showMainMenu() {
         while (true) {
             System.out.println("\n========== 图书管理系统 ==========");
+            System.out.println("当前用户：" + currentUser.getUsername() + "（" + currentUser.getRole() + "）");
             System.out.println("增加图书请选---------------1");
             System.out.println("删除图书请选---------------2");
             System.out.println("修改图书请选---------------3");
             System.out.println("查询图书请选---------------4");
             System.out.println("查看所有图书请选-----------5");
-            System.out.println("退出系统请选---------------0");
+            System.out.println("退出登录请选---------------0");
             System.out.println("请选择：");
 
             int choice = scanner.nextInt();
@@ -72,21 +148,18 @@ public class MainClass {
                         listAllBooks();
                         break;
                     case 0:
-                        System.out.println("感谢使用，再见！");
-                        System.exit(0);
-                        break;
+                        System.out.println("已退出登录！");
+                        currentUser = null;
+                        showLoginMenu();
+                        return;
                     default:
                         System.out.println("输入无效，请重新选择！");
                         break;
                 }
-            } catch (InputMismatchException e) {
+            } catch (BookException | InputMismatchException e) {
                 System.out.println("操作失败：" + e.getMessage());
             }
         }
-    }
-
-    public static void main(String[] args) {
-        new MainClass();
     }
 
     private void addBook() {
