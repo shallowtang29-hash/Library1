@@ -64,24 +64,38 @@ public class Server {
     // ==================== 客户端处理 ====================
 
     private void handleClient(Socket client) {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream(), CHARSET));
-             PrintWriter writer = new PrintWriter(new OutputStreamWriter(client.getOutputStream(), CHARSET), true)) {
+        try (InputStream is = client.getInputStream();
+             OutputStream os = client.getOutputStream();
+             PrintWriter writer = new PrintWriter(new OutputStreamWriter(os, CHARSET), true)) {
 
             writer.println("欢迎连接图书管理系统服务端！");
             writer.flush();
 
-            String request;
-            while ((request = reader.readLine()) != null) {
-                request = request.trim();
-                if (request.isEmpty()) continue;
-                System.out.println("[收到请求] " + request);
+            byte[] buf = new byte[4096];
+            int len;
+            StringBuilder sb = new StringBuilder();
 
-                ReturnResult result = dispatch(request);
+            while ((len = is.read(buf)) != -1) {
+                sb.append(new String(buf, 0, len, CHARSET));
 
-                Protocol.writeResult(writer, result);
-                System.out.println("[已响应] success=" + result.isSuccess());
+                String content = sb.toString();
+                String[] parts = content.split("[\\r\\n]+");
 
-                if ("QUIT".equals(getCommand(request))) break;
+                for (int i = 0; i < parts.length - 1; i++) {
+                    String cmd = parts[i].trim();
+                    if (cmd.isEmpty()) continue;
+                    System.out.println("[收到请求] " + cmd);
+                    ReturnResult result = dispatch(cmd);
+                    Protocol.writeResult(writer, result);
+                    System.out.println("[已响应] success=" + result.isSuccess());
+                    if ("QUIT".equals(getCommand(cmd))) {
+                        client.close();
+                        return;
+                    }
+                }
+
+                sb.setLength(0);
+                sb.append(parts[parts.length - 1]);
             }
         } catch (IOException e) {
             System.err.println("[服务端] 客户端断开: " + e.getMessage());

@@ -2,11 +2,12 @@ package network;
 
 import java.io.*;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class Protocol {
 
-    static final Charset CHARSET = Charset.forName("GBK");
+    static final Charset CHARSET = StandardCharsets.UTF_8;
     static final String END_MARKER = "END";
     static final String DATA_PREFIX = "DATA=";
     static final String STATUS_PREFIX = "STATUS=";
