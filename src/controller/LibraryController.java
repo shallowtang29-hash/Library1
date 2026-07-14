@@ -6,6 +6,7 @@ import network.Client;
 import network.ReturnResult;
 import view.LibraryView;
 
+import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -29,22 +30,31 @@ public class LibraryController implements LibraryView.Listener {
             view.showError("用户名和密码不能为空！");
             return;
         }
-        try {
-            ReturnResult result = client.login(username, password);
-            result.checkError();
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ReturnResult result = client.login(username, password);
+                result.checkError();
+                List<List<String>> rows = result.getRows();
+                currentUsername = rows.get(0).get(0);
+                currentRole = rows.get(0).get(1);
+                isAdmin = "true".equals(rows.get(0).get(2));
+                return null;
+            }
 
-            List<List<String>> rows = result.getRows();
-            currentUsername = rows.get(0).get(0);
-            currentRole = rows.get(0).get(1);
-            isAdmin = "true".equals(rows.get(0).get(2));
-
-            view.showDashboard();
-            view.updatePermissions(currentUsername, currentRole, isAdmin);
-            onRefreshBooks();
-        } catch (Exception e) {
-            view.clearLoginPassword();
-            view.showError(e.getMessage());
-        }
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    view.showDashboard();
+                    view.updatePermissions(currentUsername, currentRole, isAdmin);
+                    onRefreshBooks();
+                } catch (Exception e) {
+                    view.clearLoginPassword();
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     @Override
@@ -53,13 +63,24 @@ public class LibraryController implements LibraryView.Listener {
             view.showError("用户名和密码不能为空！");
             return;
         }
-        try {
-            ReturnResult result = client.register(username, password, role);
-            result.checkError();
-            view.switchToLoginTab(username);
-        } catch (Exception e) {
-            view.showError(e.getMessage());
-        }
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ReturnResult result = client.register(username, password, role);
+                result.checkError();
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    view.switchToLoginTab(username);
+                } catch (Exception e) {
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     @Override
@@ -73,147 +94,254 @@ public class LibraryController implements LibraryView.Listener {
 
     @Override
     public void onAddBook(String name, String author, double price) {
-        try {
-            ReturnResult result = client.addBook(name, author, price);
-            result.checkError();
-            view.showInfo("添加图书成功！");
-            onRefreshBooks();
-        } catch (Exception e) {
-            view.showError(e.getMessage());
-        }
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ReturnResult result = client.addBook(name, author, price);
+                result.checkError();
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    view.showInfo("添加图书成功！");
+                    onRefreshBooks();
+                } catch (Exception e) {
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     @Override
     public void onDeleteBook(String bookname) {
-        try {
-            ReturnResult result = client.deleteBookByName(bookname);
-            result.checkError();
-            view.showInfo("删除图书成功！");
-            onRefreshBooks();
-        } catch (Exception e) {
-            view.showError(e.getMessage());
-        }
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ReturnResult result = client.deleteBookByName(bookname);
+                result.checkError();
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    view.showInfo("删除图书成功！");
+                    onRefreshBooks();
+                } catch (Exception e) {
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     @Override
     public void onUpdateBook(int id, String name, String author, double price) {
-        try {
-            ReturnResult result = client.updateBook(id, name, author, price);
-            result.checkError();
-            view.showInfo("修改图书成功！");
-            onRefreshBooks();
-        } catch (Exception e) {
-            view.showError(e.getMessage());
-        }
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ReturnResult result = client.updateBook(id, name, author, price);
+                result.checkError();
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    view.showInfo("修改图书成功！");
+                    onRefreshBooks();
+                } catch (Exception e) {
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     @Override
     public void onSearch(String keyword) {
-        try {
-            ReturnResult result = client.searchBooks(keyword);
-            result.checkError();
-            List<Book> results = Client.toBookList(result);
-            if (results.isEmpty()) {
-                view.showInfo("未找到匹配的图书！");
-                return;
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ReturnResult result = client.searchBooks(keyword);
+                result.checkError();
+                List<Book> results = Client.toBookList(result);
+                if (results.isEmpty()) {
+                    SwingUtilities.invokeLater(() -> view.showInfo("未找到匹配的图书！"));
+                    return null;
+                }
+                List<Book> selected = view.showSearchResultsAndGetSelection(results, isAdmin);
+                if (selected == null) return null;
+                if (isAdmin) {
+                    handleAdminAction(selected);
+                } else {
+                    doBorrowBooks(selected);
+                }
+                return null;
             }
-            List<Book> selected = view.showSearchResultsAndGetSelection(results, isAdmin);
-            if (selected == null) return;
 
-            if (isAdmin) {
-                handleAdminAction(selected);
-            } else {
-                doBorrowBooks(selected);
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception e) {
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                }
             }
-        } catch (Exception e) {
-            view.showError(e.getMessage());
-        }
+        }.execute();
     }
 
     @Override
     public void onBorrowSearch(String keyword) {
-        try {
-            List<Book> results;
-            try {
-                int bookId = Integer.parseInt(keyword);
-                ReturnResult result = client.findBookById(bookId);
-                result.checkError();
-                results = Client.toBookList(result);
-            } catch (NumberFormatException e) {
-                ReturnResult result = client.searchBooks(keyword);
-                result.checkError();
-                results = Client.toBookList(result);
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                List<Book> results;
+                try {
+                    int bookId = Integer.parseInt(keyword);
+                    ReturnResult result = client.findBookById(bookId);
+                    result.checkError();
+                    results = Client.toBookList(result);
+                } catch (NumberFormatException e) {
+                    ReturnResult result = client.searchBooks(keyword);
+                    result.checkError();
+                    results = Client.toBookList(result);
+                }
+                if (results.isEmpty()) {
+                    SwingUtilities.invokeLater(() -> view.showInfo("未找到匹配的图书！"));
+                    return null;
+                }
+                List<Book> selected = view.showSearchResultsAndGetSelection(results, false);
+                if (selected == null) return null;
+                doBorrowBooks(selected);
+                return null;
             }
-            if (results.isEmpty()) {
-                view.showInfo("未找到匹配的图书！");
-                return;
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception e) {
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                }
             }
-            List<Book> selected = view.showSearchResultsAndGetSelection(results, false);
-            if (selected == null) return;
-            doBorrowBooks(selected);
-        } catch (Exception e) {
-            view.showError(e.getMessage());
-        }
+        }.execute();
     }
 
     @Override
     public void onBorrowBooks(List<Book> books) {
-        doBorrowBooks(books);
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                doBorrowBooks(books);
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception e) {
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     @Override
     public void onReturnBooks(List<Integer> recordIds) {
-        try {
-            ReturnResult urResult = client.getUnreturnedRecords(currentUsername);
-            urResult.checkError();
-            List<BorrowRecord> unreturned = Client.toBorrowRecordList(urResult);
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ReturnResult urResult = client.getUnreturnedRecords(currentUsername);
+                urResult.checkError();
+                List<BorrowRecord> unreturned = Client.toBorrowRecordList(urResult);
 
-            if (unreturned.isEmpty()) {
-                view.showInfo("您当前没有未归还的图书！");
-                return;
+                if (unreturned.isEmpty()) {
+                    SwingUtilities.invokeLater(() -> view.showInfo("您当前没有未归还的图书！"));
+                    return null;
+                }
+                List<Integer> selectedIds = view.showReturnDialog(unreturned);
+                if (selectedIds == null) return null;
+
+                int success = 0;
+                StringBuilder failed = new StringBuilder();
+                for (int recordId : selectedIds) {
+                    try {
+                        ReturnResult result = client.returnBook(currentUsername, recordId);
+                        result.checkError();
+                        success++;
+                    } catch (Exception e) {
+                        failed.append("记录#").append(recordId).append(": ").append(e.getMessage()).append("\n");
+                    }
+                }
+                final int s = success;
+                final StringBuilder f = failed;
+                SwingUtilities.invokeLater(() -> {
+                    view.showBatchResult("成功归还 " + s + " 本图书！", f);
+                    onRefreshBooks();
+                });
+                return null;
             }
-            List<Integer> selectedIds = view.showReturnDialog(unreturned);
-            if (selectedIds == null) return;
 
-            int success = 0;
-            StringBuilder failed = new StringBuilder();
-            for (int recordId : selectedIds) {
+            @Override
+            protected void done() {
                 try {
-                    ReturnResult result = client.returnBook(currentUsername, recordId);
-                    result.checkError();
-                    success++;
+                    get();
                 } catch (Exception e) {
-                    failed.append("记录#").append(recordId).append(": ").append(e.getMessage()).append("\n");
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
                 }
             }
-            view.showBatchResult("成功归还 " + success + " 本图书！", failed);
-            onRefreshBooks();
-        } catch (Exception e) {
-            view.showError(e.getMessage());
-        }
+        }.execute();
     }
 
     @Override
     public void onViewRecords() {
-        try {
-            ReturnResult result = client.getBorrowRecords(currentUsername);
-            result.checkError();
-            List<BorrowRecord> records = Client.toBorrowRecordList(result);
-            view.displayBorrowRecords(records);
-        } catch (Exception e) {
-            view.showError(e.getMessage());
-        }
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ReturnResult result = client.getBorrowRecords(currentUsername);
+                result.checkError();
+                List<BorrowRecord> records = Client.toBorrowRecordList(result);
+                SwingUtilities.invokeLater(() -> view.displayBorrowRecords(records));
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception e) {
+                    view.showError(e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     @Override
     public void onRefreshBooks() {
-        try {
-            ReturnResult result = client.listBooks();
-            result.checkError();
-            view.displayBooks(Client.toBookList(result));
-        } catch (Exception e) {
-            view.showError("加载图书列表失败：" + e.getMessage());
-        }
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                ReturnResult result = client.listBooks();
+                result.checkError();
+                List<Book> books = Client.toBookList(result);
+                SwingUtilities.invokeLater(() -> view.displayBooks(books));
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                } catch (Exception e) {
+                    view.showError("加载图书列表失败：" + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
+                }
+            }
+        }.execute();
     }
 
     // ==================== 内部方法 ====================

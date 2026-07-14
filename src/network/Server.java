@@ -10,6 +10,7 @@ import service.BorrowService;
 import service.UserService;
 
 import java.io.*;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.Charset;
@@ -41,7 +42,21 @@ public class Server {
         running = true;
         try {
             serverSocket = new ServerSocket(port);
-            System.out.println("[服务端] 已启动，监听端口: " + port);
+            System.out.println("========================================");
+            System.out.println("  图书管理系统服务端 已启动");
+            System.out.println("========================================");
+            System.out.println("  监听端口  : " + port);
+            try {
+                String lanIp = InetAddress.getLocalHost().getHostAddress();
+                System.out.println("  局域网地址: " + lanIp + ":" + port);
+                System.out.println("  (Android局域网连接用此地址)");
+            } catch (Exception ignored) {}
+            System.out.println("----------------------------------------");
+            System.out.println("  ngrok 广域网穿透命令:");
+            System.out.println("    ngrok tcp " + port);
+            System.out.println("  启动后 ngrok 会显示公网地址，");
+            System.out.println("  将该地址告知 Android 端即可连接。");
+            System.out.println("========================================");
             while (running) {
                 Socket client = serverSocket.accept();
                 System.out.println("[服务端] 新客户端连接: " + client.getRemoteSocketAddress());
@@ -64,38 +79,25 @@ public class Server {
     // ==================== 客户端处理 ====================
 
     private void handleClient(Socket client) {
-        try (InputStream is = client.getInputStream();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream(), CHARSET));
              OutputStream os = client.getOutputStream();
              PrintWriter writer = new PrintWriter(new OutputStreamWriter(os, CHARSET), true)) {
 
             writer.println("欢迎连接图书管理系统服务端！");
             writer.flush();
 
-            byte[] buf = new byte[4096];
-            int len;
-            StringBuilder sb = new StringBuilder();
-
-            while ((len = is.read(buf)) != -1) {
-                sb.append(new String(buf, 0, len, CHARSET));
-
-                String content = sb.toString();
-                String[] parts = content.split("[\\r\\n]+");
-
-                for (int i = 0; i < parts.length - 1; i++) {
-                    String cmd = parts[i].trim();
-                    if (cmd.isEmpty()) continue;
-                    System.out.println("[收到请求] " + cmd);
-                    ReturnResult result = dispatch(cmd);
-                    Protocol.writeResult(writer, result);
-                    System.out.println("[已响应] success=" + result.isSuccess());
-                    if ("QUIT".equals(getCommand(cmd))) {
-                        client.close();
-                        return;
-                    }
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String cmd = line.trim();
+                if (cmd.isEmpty()) continue;
+                System.out.println("[收到请求] " + cmd);
+                ReturnResult result = dispatch(cmd);
+                Protocol.writeResult(writer, result);
+                System.out.println("[已响应] success=" + result.isSuccess());
+                if ("QUIT".equals(getCommand(cmd))) {
+                    client.close();
+                    return;
                 }
-
-                sb.setLength(0);
-                sb.append(parts[parts.length - 1]);
             }
         } catch (IOException e) {
             System.err.println("[服务端] 客户端断开: " + e.getMessage());
@@ -146,6 +148,9 @@ public class Server {
         String username = parts[1].trim();
         String password = parts[2].trim();
         User user = userService.login(username, password);
+        if (user == null) {
+            return ReturnResult.error("用户不存在！");
+        }
 
         String isAdmin = user.getClass().getSimpleName().equals("Admin") ? "true" : "false";
         List<String> cols = Arrays.asList("username", "role", "isAdmin");
@@ -282,7 +287,6 @@ public class Server {
         BookService bookService = new BookService(bookDao);
         UserService userService = new UserService(userDao);
         BorrowService borrowService = new BorrowService(bookDao, userDao, borrowRecordDao);
-
         int port = args.length > 0 ? Integer.parseInt(args[0]) : DEFAULT_PORT;
         Server server = new Server(port, bookService, userService, borrowService);
         server.start();
