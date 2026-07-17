@@ -10,6 +10,10 @@ import java.util.List;
 public class ArrayListUserDao implements UserDao {
     private final List<User> users = new ArrayList<>();
 
+    public void clear() {
+        users.clear();
+    }
+
     @Override
     public void addUser(User user) {
         users.add(user);
@@ -33,5 +37,10 @@ public class ArrayListUserDao implements UserDao {
             }
         }
         return false;
+    }
+
+    @Override
+    public List<User> findAllUsers() {
+        return new ArrayList<>(users);
     }
 }

@@ -16,6 +16,7 @@ import java.net.Socket;
 import java.nio.charset.Charset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.*;
 
 public class Server {
 
@@ -29,6 +30,8 @@ public class Server {
     private final BorrowService borrowService;
     private ServerSocket serverSocket;
     private volatile boolean running;
+    // 使用自定义线程池替代简单的new Thread()，避免线程创建过多导致系统资源耗尽
+    private ExecutorService clientExecutor;
 
     public Server(int port, BookService bookService,
                   UserService userService, BorrowService borrowService) {
@@ -40,6 +43,29 @@ public class Server {
 
     public void start() {
         running = true;
+        int cpuCores = Runtime.getRuntime().availableProcessors();
+        // 创建自定义线程池，设置合理的参数：
+        // corePoolSize: 核心线程数，保持活跃的最小线程数
+        // maximumPoolSize: 最大线程数，超出核心线程数后最多创建的线程数
+        // keepAliveTime: 非核心线程空闲存活时间
+        // LinkedBlockingQueue: 任务队列，有界队列防止内存溢出
+        // CallerRunsPolicy: 拒绝策略，当队列满了由调用线程处理任务
+        clientExecutor = new ThreadPoolExecutor(
+                4,
+                Math.max(8, cpuCores * 2),
+                60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(100),
+                new ThreadFactory() {
+                    private int count = 0;
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        Thread t = new Thread(r, "client-handler-" + (count++));
+                        t.setDaemon(true); // 设置为守护线程，主线程结束时自动结束
+                        return t;
+                    }
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
         try {
             serverSocket = new ServerSocket(port);
             System.out.println("========================================");
@@ -51,13 +77,11 @@ public class Server {
                 System.out.println("  局域网地址: " + lanIp + ":" + port);
                 System.out.println("  (Android局域网连接用此地址)");
             } catch (Exception ignored) {}
-            System.out.println("========================================");
             while (running) {
                 Socket client = serverSocket.accept();
                 System.out.println("[服务端] 新客户端连接: " + client.getRemoteSocketAddress());
-                Thread t = new Thread(() -> handleClient(client));
-                t.setDaemon(true);
-                t.start();
+                // 使用线程池处理客户端请求，而不是创建新线程
+                clientExecutor.submit(() -> handleClient(client));
             }
         } catch (IOException e) {
             if (running) System.err.println("[服务端] 启动失败: " + e.getMessage());
@@ -66,6 +90,17 @@ public class Server {
 
     public void stop() {
         running = false;
+        if (clientExecutor != null) {
+            clientExecutor.shutdown(); // 关闭线程池，不再接受新任务
+            try {
+                // 等待已提交的任务执行完成，最多等待5秒
+                if (!clientExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    clientExecutor.shutdownNow(); // 强制关闭仍在执行的任务
+                }
+            } catch (InterruptedException e) {
+                clientExecutor.shutdownNow();
+            }
+        }
         try {
             if (serverSocket != null) serverSocket.close();
         } catch (IOException ignored) {}
@@ -263,21 +298,19 @@ public class Server {
     }
 
     // ==================== 服务端启动入口 ====================
-
+    
     public static void main(String[] args) {
         System.out.println("===== 图书管理系统 - 服务端 =====");
 
-        SqlBorrowRecordDaoImpl borrowRecordDao = new SqlBorrowRecordDaoImpl();
-        BookDao sqlBookDao = new SqlBookDaoImpl(borrowRecordDao);
+        BookDao sqlBookDao = new SqlBookDaoImpl();
         UserDao sqlUserDao = new SqlUserDaoImpl();
+        BorrowRecordDao borrowRecordDao = new SqlBorrowRecordDaoImpl();
 
         ArrayListBookDao memBookCache = new ArrayListBookDao();
-        FileBookDao fileBookCache = new FileBookDao("data/books_cache.txt");
-        BookDao bookDao = new CachingBookDao(sqlBookDao, memBookCache, fileBookCache);
+        BookDao bookDao = new CachingBookDao(sqlBookDao, memBookCache);
 
         ArrayListUserDao memUserCache = new ArrayListUserDao();
-        FileUserDao fileUserCache = new FileUserDao("data/users_cache.txt");
-        UserDao userDao = new CachingUserDao(sqlUserDao, memUserCache, fileUserCache);
+        UserDao userDao = new CachingUserDao(sqlUserDao, memUserCache);
 
         BookService bookService = new BookService(bookDao);
         UserService userService = new UserService(userDao);

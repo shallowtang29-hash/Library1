@@ -49,7 +49,13 @@ public class HttpApiServer {
         server.createContext("/api/return", this::handleReturn);
         server.createContext("/api/records", this::handleRecords);
 
-        server.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(10));
+        int cpuCores = Runtime.getRuntime().availableProcessors();
+        server.setExecutor(new java.util.concurrent.ThreadPoolExecutor(
+                4, Math.max(10, cpuCores * 2),
+                60L, java.util.concurrent.TimeUnit.SECONDS,
+                new java.util.concurrent.LinkedBlockingQueue<>(200),
+                new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy()
+        ));
         server.start();
 
         System.out.println("========================================");
@@ -377,7 +383,7 @@ public class HttpApiServer {
     }
 
     // ==================== 启动入口 ====================
-
+    
     public static void main(String[] args) throws IOException {
         System.out.println("===== 图书管理系统 - HTTP API 服务端 =====");
 
@@ -386,12 +392,10 @@ public class HttpApiServer {
         UserDao sqlUserDao = new SqlUserDaoImpl();
 
         ArrayListBookDao memBookCache = new ArrayListBookDao();
-        FileBookDao fileBookCache = new FileBookDao("data/books_cache.txt");
-        BookDao bookDao = new CachingBookDao(sqlBookDao, memBookCache, fileBookCache);
+        BookDao bookDao = new CachingBookDao(sqlBookDao, memBookCache);
 
         ArrayListUserDao memUserCache = new ArrayListUserDao();
-        FileUserDao fileUserCache = new FileUserDao("data/users_cache.txt");
-        UserDao userDao = new CachingUserDao(sqlUserDao, memUserCache, fileUserCache);
+        UserDao userDao = new CachingUserDao(sqlUserDao, memUserCache);
 
         BookService bookService = new BookService(bookDao);
         UserService userService = new UserService(userDao);

@@ -62,6 +62,28 @@ public class SqlUserDaoImpl implements UserDao {
     }
 
     @Override
+    public java.util.List<User> findAllUsers() {
+        Connection conn = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        java.util.List<User> users = new java.util.ArrayList<>();
+        try {
+            conn = DBUtil.getConnection();
+            String sql = "SELECT username, password, role FROM `user`";
+            ps = conn.prepareStatement(sql);
+            rs = ps.executeQuery();
+            while (rs.next()) {
+                users.add(mapRowToUser(rs));
+            }
+        } catch (SQLException e) {
+            throw new DataAccessException("查询所有用户失败！", e);
+        } finally {
+            DBUtil.close(rs, ps, conn);
+        }
+        return users;
+    }
+
+    @Override
     public boolean existsByUsername(String username) {
         Connection conn = null;
         PreparedStatement ps = null;

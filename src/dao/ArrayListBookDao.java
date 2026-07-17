@@ -9,6 +9,11 @@ public class ArrayListBookDao implements BookDao {
     private final TreeMap<Integer, Book> books = new TreeMap<>();
     private final TreeSet<Integer> usedIds = new TreeSet<>();
 
+    public void clear() {
+        books.clear();
+        usedIds.clear();
+    }
+
     @Override
     public void addBook(Book book) {
         if (book.getId() <= 0) {

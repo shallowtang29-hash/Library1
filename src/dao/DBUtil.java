@@ -10,7 +10,7 @@ public class DBUtil {
     private static final Logger LOGGER = Logger.getLogger(DBUtil.class.getName());
     private static final String URL = "jdbc:mysql://localhost:3306/library?useSSL=false&serverTimezone=UTC&characterEncoding=utf8";
     private static final String USER = "root";
-    private static final String PASSWORD = "121018";
+    private static final String PASSWORD = "12345";
 
     static {
         try {
@@ -22,9 +22,13 @@ public class DBUtil {
 
     public static Connection getConnection() {
         try {
-            return DriverManager.getConnection(URL, USER, PASSWORD);
-        } catch (SQLException e) {
-            throw new RuntimeException("数据库连接失败！", e);
+            return ConnectionPool.getInstance().getConnection();
+        } catch (Exception e) {
+            try {
+                return DriverManager.getConnection(URL, USER, PASSWORD);
+            } catch (SQLException ex) {
+                throw new RuntimeException("数据库连接失败！", ex);
+            }
         }
     }
 

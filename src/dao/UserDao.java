@@ -8,4 +8,6 @@ public interface UserDao {
     User findByUsername(String username);
 
     boolean existsByUsername(String username);
+
+    java.util.List<User> findAllUsers();
 }

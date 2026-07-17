@@ -69,7 +69,7 @@ public class SqlBorrowRecordDaoImpl implements BorrowRecordDao {
             throw e;
         } catch (SQLException e) {
             try { if (conn != null) conn.rollback(); } catch (SQLException ex) { ex.printStackTrace(); }
-            throw new DataAccessException("借阅图书失败！", e);
+            throw new DataAccessException("借阅图书失败！SQL错误：" + e.getMessage(), e);
         } finally {
             DBUtil.close(rs, ps, conn);
         }

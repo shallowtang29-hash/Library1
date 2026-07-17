@@ -4,162 +4,196 @@ import model.Book;
 import exception.BookNotFoundException;
 import exception.DataAccessException;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class CachingBookDao implements BookDao {
 
     private final BookDao sqlDao;
     private final ArrayListBookDao memoryCache;
-    private final FileBookDao fileCache;
-    private boolean memoryLoaded = false;
+    // volatile关键字确保memoryLoaded变量在多线程间的可见性
+    // 当一个线程修改了该变量，其他线程能立即看到最新值
+    private volatile boolean memoryLoaded = false;
+    // 使用读写锁保护缓存的读写操作
+    // 读操作可以并发执行，写操作需要独占锁，提高并发性能
+    private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+    // 初始化锁，用于保护首次加载缓存的双重检查锁定模式
+    private final Object initLock = new Object();
 
-    public CachingBookDao(BookDao sqlDao, ArrayListBookDao memoryCache, FileBookDao fileCache) {
+    public CachingBookDao(BookDao sqlDao, ArrayListBookDao memoryCache) {
         this.sqlDao = sqlDao;
         this.memoryCache = memoryCache;
-        this.fileCache = fileCache;
     }
 
+    // 使用双重检查锁定模式确保缓存只被初始化一次
+    // 这种模式既保证了线程安全，又避免了每次读取都加锁的性能损耗
     private void ensureMemoryLoaded() {
         if (!memoryLoaded) {
-            // 优先从数据库加载（数据库是真理源），文件缓存作为降级
-            try {
-                List<Book> books = sqlDao.findAllBooks();
-                for (Book b : books) {
-                    memoryCache.addBook(copyBook(b));
-                }
-                syncFileFromMemory();
-            } catch (Exception e) {
-                try {
-                    List<Book> books = fileCache.findAllBooks();
-                    for (Book b : books) {
-                        memoryCache.addBook(copyBook(b));
+            synchronized (initLock) {
+                if (!memoryLoaded) {
+                    try {
+                        List<Book> books = sqlDao.findAllBooks();
+                        for (Book b : books) {
+                            memoryCache.addBook(copyBook(b));
+                        }
+                    } catch (Exception e) {
+                        throw new DataAccessException("初始化缓存失败！", e);
                     }
-                } catch (Exception ex) {
-                    throw new DataAccessException("加载缓存数据失败！", ex);
+                    memoryLoaded = true;
                 }
             }
-            memoryLoaded = true;
-        }
-    }
-
-    private void syncFileFromMemory() {
-        List<Book> all = memoryCache.findAllBooks();
-        for (Book b : all) {
-            try { fileCache.updateBook(b); } catch (BookNotFoundException e) { fileCache.addBook(b); }
         }
     }
 
     private Book copyBook(Book src) {
-        Book copy = new Book(src.getId(), src.getBookname(), src.getAuthor(), src.getPrice(), src.getStock());
-        return copy;
+        return new Book(src.getId(), src.getBookname(), src.getAuthor(), src.getPrice(), src.getStock());
     }
 
     @Override
     public void addBook(Book book) {
-        sqlDao.addBook(book);
-        Book cacheCopy = copyBook(book);
-        memoryCache.addBook(cacheCopy);
-        fileCache.addBook(copyBook(book));
+        // 写操作需要获取写锁，确保数据一致性
+        rwLock.writeLock().lock();
+        try {
+            sqlDao.addBook(book);
+            memoryCache.addBook(copyBook(book));
+        } finally {
+            // 释放写锁，避免死锁
+            rwLock.writeLock().unlock();
+        }
     }
 
     @Override
     public void deleteBook(int id) {
-        sqlDao.deleteBook(id);
-        try { memoryCache.deleteBook(id); } catch (Exception ignored) {}
-        try { fileCache.deleteBook(id); } catch (Exception ignored) {}
+        // 写操作需要获取写锁，确保数据一致性
+        rwLock.writeLock().lock();
+        try {
+            sqlDao.deleteBook(id);
+            try { memoryCache.deleteBook(id); } catch (Exception ignored) {}
+        } finally {
+            // 释放写锁，避免死锁
+            rwLock.writeLock().unlock();
+        }
     }
 
     @Override
     public void updateBook(Book book) {
-        sqlDao.updateBook(book);
+        // 写操作需要获取写锁，确保数据一致性
+        rwLock.writeLock().lock();
         try {
-            memoryCache.updateBook(book);
-        } catch (BookNotFoundException e) {
-            memoryCache.addBook(copyBook(book));
-        }
-        try {
-            fileCache.updateBook(book);
-        } catch (BookNotFoundException e) {
-            fileCache.addBook(copyBook(book));
+            sqlDao.updateBook(book);
+            try {
+                memoryCache.updateBook(book);
+            } catch (BookNotFoundException e) {
+                memoryCache.addBook(copyBook(book));
+            }
+        } finally {
+            // 释放写锁，避免死锁
+            rwLock.writeLock().unlock();
         }
     }
 
     @Override
     public Book findBookById(int id) {
         ensureMemoryLoaded();
+        // 读操作只需要获取读锁，允许多个线程同时读取
+        rwLock.readLock().lock();
         try {
             return memoryCache.findBookById(id);
-        } catch (BookNotFoundException e) {
-            Book book = sqlDao.findBookById(id);
-            memoryCache.addBook(copyBook(book));
-            try { fileCache.addBook(copyBook(book)); } catch (Exception ignored) {}
-            return book;
+        } finally {
+            // 释放读锁，避免死锁
+            rwLock.readLock().unlock();
         }
     }
 
     @Override
     public Book findBookByName(String bookname) {
         ensureMemoryLoaded();
+        // 读操作只需要获取读锁，允许多个线程同时读取
+        rwLock.readLock().lock();
         try {
             return memoryCache.findBookByName(bookname);
-        } catch (BookNotFoundException e) {
-            Book book = sqlDao.findBookByName(bookname);
-            memoryCache.addBook(copyBook(book));
-            try { fileCache.addBook(copyBook(book)); } catch (Exception ignored) {}
-            return book;
+        } finally {
+            // 释放读锁，避免死锁
+            rwLock.readLock().unlock();
         }
     }
 
     @Override
     public List<Book> findAllBooks() {
         ensureMemoryLoaded();
-        List<Book> all = memoryCache.findAllBooks();
-        if (!all.isEmpty()) return all;
-        List<Book> books = sqlDao.findAllBooks();
-        for (Book b : books) {
-            memoryCache.addBook(copyBook(b));
+        // 读操作只需要获取读锁，允许多个线程同时读取
+        rwLock.readLock().lock();
+        try {
+            return memoryCache.findAllBooks();
+        } finally {
+            // 释放读锁，避免死锁
+            rwLock.readLock().unlock();
         }
-        syncFileFromMemory();
-        return memoryCache.findAllBooks();
     }
 
     @Override
     public List<Book> searchBooks(String keyword) {
         ensureMemoryLoaded();
-        return memoryCache.searchBooks(keyword);
+        // 读操作只需要获取读锁，允许多个线程同时读取
+        rwLock.readLock().lock();
+        try {
+            return memoryCache.searchBooks(keyword);
+        } finally {
+            // 释放读锁，避免死锁
+            rwLock.readLock().unlock();
+        }
     }
 
     @Override
     public boolean exists(String bookname, String author, double price) {
         ensureMemoryLoaded();
-        return memoryCache.exists(bookname, author, price);
+        // 读操作只需要获取读锁，允许多个线程同时读取
+        rwLock.readLock().lock();
+        try {
+            return memoryCache.exists(bookname, author, price);
+        } finally {
+            // 释放读锁，避免死锁
+            rwLock.readLock().unlock();
+        }
     }
 
     @Override
     public int getStock(int bookId) {
         ensureMemoryLoaded();
+        // 读操作只需要获取读锁，允许多个线程同时读取
+        rwLock.readLock().lock();
         try {
             return memoryCache.getStock(bookId);
-        } catch (BookNotFoundException e) {
-            Book book = sqlDao.findBookById(bookId);
-            memoryCache.addBook(copyBook(book));
-            try { fileCache.addBook(copyBook(book)); } catch (Exception ignored) {}
-            return book.getStock();
+        } finally {
+            // 释放读锁，避免死锁
+            rwLock.readLock().unlock();
         }
     }
 
     @Override
     public void decreaseStock(int bookId) {
-        sqlDao.decreaseStock(bookId);
-        try { memoryCache.decreaseStock(bookId); } catch (Exception ignored) {}
-        try { fileCache.decreaseStock(bookId); } catch (Exception ignored) {}
+        // 写操作需要获取写锁，确保数据一致性
+        rwLock.writeLock().lock();
+        try {
+            sqlDao.decreaseStock(bookId);
+            try { memoryCache.decreaseStock(bookId); } catch (Exception ignored) {}
+        } finally {
+            // 释放写锁，避免死锁
+            rwLock.writeLock().unlock();
+        }
     }
 
     @Override
     public void increaseStock(int bookId, int amount) {
-        sqlDao.increaseStock(bookId, amount);
-        try { memoryCache.increaseStock(bookId, amount); } catch (Exception ignored) {}
-        try { fileCache.increaseStock(bookId, amount); } catch (Exception ignored) {}
+        // 写操作需要获取写锁，确保数据一致性
+        rwLock.writeLock().lock();
+        try {
+            sqlDao.increaseStock(bookId, amount);
+            try { memoryCache.increaseStock(bookId, amount); } catch (Exception ignored) {}
+        } finally {
+            // 释放写锁，避免死锁
+            rwLock.writeLock().unlock();
+        }
     }
 }
